@@ -1,48 +1,59 @@
-version: "3.8"
-
 services:
+
+  # -------------------- MySQL Database Service --------------------
   mysql:
-    user: "${UID}:${GID}" 
-    image: mysql:5.7
-    container_name: mysql
+    image: mysql                  # Official MySQL image (stable & widely used)
+    container_name: mysql             # Fixed name → used as hostname by Flask
+
     environment:
-      MYSQL_ROOT_PASSWORD: root
-      MYSQL_DATABASE: devops
-      MYSQL_USER: admin
-      MYSQL_PASSWORD: admin
+      MYSQL_ROOT_PASSWORD: root       # Root password for MySQL
+      MYSQL_DATABASE: devops          # Database created at start up
+
     volumes:
-      - ./mysql-data:/var/lib/mysql
-      - ./message.sql:/docker-entrypoint-initdb.d/message.sql  
-    networks:
-      - twotier
-    healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-proot"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 60s
+      - my-volume:/var/lib/mysql      # Named volume → persist database data
 
+    networks:
+      - my-network                    # Custom network for container communication
+
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uadmin", "-padmin"]
+                                      # Checks if MySQL is ready to accept connections
+      interval: 10s                   # Run healthcheck every 10 seconds
+      timeout: 5s                     # Fail if no response within 5 seconds
+      retries: 5                      # Mark unhealthy after 5 failures
+      start_period: 40s               # Grace time for initial MySQL startup
+
+  # -------------------- Flask Application Service --------------------
   flask-app:
-    image: trainwithshubham/two-tier-flask-app:latest
+    image:  fazilasayyed/2-tier-flaskapp
+                                      # Prebuilt Flask application image
     container_name: flask-app
-    ports:
-      - "5000:5000"
-    environment:
-      MYSQL_HOST: mysql
-      MYSQL_USER: root
-      MYSQL_PASSWORD: root
-      MYSQL_DB: devops
-    depends_on:
-      - mysql
-    networks:
-      - twotier
-    restart: always
-    healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:5000/health || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
 
+    ports:
+      - "5000:5000"                   # Expose app on host port 5000
+
+    environment:
+      MYSQL_HOST: mysql               # MySQL hostname (service name)
+      MYSQL_USER: root               # DB username
+      MYSQL_PASSWORD: root           # DB password
+      MYSQL_DB: devops                # Database name
+      MYSQL_PORT: 3306                # MySQL default port
+
+    depends_on:
+     mysql:
+        condition: service_healthy    # Start Flask only after MySQL is healthy
+
+    networks:
+      - my-network                    # Same network → internal DNS resolution
+
+    restart: always                   # Auto-restart if app crashes
+
+# -------------------- Custom Network --------------------
 networks:
-  twotier:
+  my-network:
+    driver: bridge                    # Bridge network for container isolation
+
+# -------------------- Persistent Volume --------------------
+volumes:
+  my-volume:
+    driver: local                     # Local Docker volume for MySQL data
